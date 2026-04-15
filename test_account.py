@@ -3,7 +3,6 @@
  WHITE-BOX UNIT TEST – Module: Accounts (Dũng)
  File target : accounts/views.py  |  accounts/serializers.py
  Method      : White-Box Testing (Branch / Path / Condition)
- Total TCs   : 10  (khớp 1-1 với Sheet 2 – agoda_sheet2_accounts.md)
  Run command : pytest accounts/tests.py -v
  Coverage    : pytest accounts/tests.py --cov=accounts --cov-report=html
 =============================================================
