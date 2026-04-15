@@ -1,6 +1,6 @@
 """
 =============================================================
- WHITE-BOX UNIT TEST – Module: Accounts (Dũng)
+ WHITE-BOX UNIT TEST – Module: Accounts
  File target : accounts/views.py  |  accounts/serializers.py
  Method      : White-Box Testing (Branch / Path / Condition)
  Run command : pytest accounts/tests.py -v
