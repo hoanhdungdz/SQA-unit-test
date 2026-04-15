@@ -27,7 +27,7 @@ User = get_user_model()
 # REQUIREMENT "Rollback": transaction=True rollbacks all DB changes after each test.
 class TestChatbotsViewsWhiteBox:
     """
-    WHITE-BOX UNIT TEST SUITE – Module: chatbots (Mạnh)
+    WHITE-BOX UNIT TEST SUITE – Module: chatbots 
     Target: chatbots/views.py
       - ask_chatbot()
       - create_new_chat()
