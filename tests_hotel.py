@@ -18,7 +18,11 @@ from rooms.models import Room
 
 
 class HotelUnitTests(TestCase):
-    """Hotel unit tests mapped to TC_HTL_BE_B_01 -> TC_HTL_BE_B_15."""
+    """
+    Hotel unit tests mapped to TC_HTL_BE_B_01 -> TC_HTL_BE_B_15.
+    Rollback: Django's TestCase wraps tests in transactions and rolls them back after completion.
+    The database state is always pristine between test runs.
+    """
 
     TEST_CASE_META = {
         "test_TC_HTL_BE_B_01_hotel_str_returns_name": (
@@ -82,50 +86,48 @@ class HotelUnitTests(TestCase):
             "Create or update interaction and refresh hotel aggregate counters correctly",
         ),
     }
+    
     TEST_CASE_ORDER = [
-        "TC_HTL_BE_B_01",
-        "TC_HTL_BE_B_02",
-        "TC_HTL_BE_B_03",
-        "TC_HTL_BE_B_04",
-        "TC_HTL_BE_B_05",
-        "TC_HTL_BE_B_06",
-        "TC_HTL_BE_B_07",
-        "TC_HTL_BE_B_08",
-        "TC_HTL_BE_B_09",
-        "TC_HTL_BE_B_10",
-        "TC_HTL_BE_B_11",
-        "TC_HTL_BE_B_12",
-        "TC_HTL_BE_B_13",
-        "TC_HTL_BE_B_14",
-        "TC_HTL_BE_B_15",
+        "TC_HTL_BE_B_01", "TC_HTL_BE_B_02", "TC_HTL_BE_B_03", "TC_HTL_BE_B_04", 
+        "TC_HTL_BE_B_05", "TC_HTL_BE_B_06", "TC_HTL_BE_B_07", "TC_HTL_BE_B_08", 
+        "TC_HTL_BE_B_09", "TC_HTL_BE_B_10", "TC_HTL_BE_B_11", "TC_HTL_BE_B_12", 
+        "TC_HTL_BE_B_13", "TC_HTL_BE_B_14", "TC_HTL_BE_B_15",
     ]
+    
     _status_by_tc = {}
 
     def setUp(self):
+        # Arrange: Basic Test Tools
         self.api_client = APIClient()
-        self.factory = APIRequestFactory()
-        self.country = Country.objects.create(name="Vietnam")
-        self.city = City.objects.create(name="Da Nang", country=self.country)
-        self.owner = CustomUser.objects.create_user(
+        self.api_request_factory = APIRequestFactory()
+        
+        # Arrange: Setup geography
+        self.vietnam_country = Country.objects.create(name="Vietnam")
+        self.danang_city = City.objects.create(name="Da Nang", country=self.vietnam_country)
+        
+        # Arrange: Setup users
+        self.owner_user = CustomUser.objects.create_user(
             username="owner_user",
             password="password123",
             email="owner@example.com",
             role="owner",
         )
-        self.customer = CustomUser.objects.create_user(
+        self.customer_user = CustomUser.objects.create_user(
             username="customer_user",
             password="password123",
             email="customer@example.com",
             role="customer",
         )
-        self.hotel = Hotel.objects.create(
-            city=self.city,
-            owner=self.owner,
+        
+        # Arrange: Setup core hotel entity
+        self.test_hotel = Hotel.objects.create(
+            city=self.danang_city,
+            owner=self.owner_user,
             name="Sunrise Hotel",
             description="Hotel used for unit tests.",
         )
 
-    def _create_room(
+    def _create_test_room(
         self,
         *,
         room_type,
@@ -135,8 +137,9 @@ class HotelUnitTests(TestCase):
         start_date=None,
         end_date=None,
     ):
+        """Helper method to construct Room entities attached to self.test_hotel."""
         return Room.objects.create(
-            hotel=self.hotel,
+            hotel=self.test_hotel,
             room_type=room_type,
             price_per_night=price_per_night,
             adults_capacity=2,
@@ -155,6 +158,7 @@ class HotelUnitTests(TestCase):
         return not bool(getattr(outcome, "success", True))
 
     def tearDown(self):
+        # Report handling hook executed post-test.
         method_name = getattr(self, "_testMethodName", "")
         meta = self.TEST_CASE_META.get(method_name)
         if meta:  # pragma: no cover
@@ -168,7 +172,7 @@ class HotelUnitTests(TestCase):
     def tearDownClass(cls):
         super().tearDownClass()
         print("\n===== HOTEL UNIT TEST STATUS SUMMARY =====")
-        print("TC ID           | Status   | Description")
+        print("TC ID            | Status   | Description")
         print("----------------+----------+-----------------------------------------------")
 
         description_by_tc = {
@@ -181,204 +185,279 @@ class HotelUnitTests(TestCase):
 
     # Test Case ID: TC_HTL_BE_B_01
     def test_TC_HTL_BE_B_01_hotel_str_returns_name(self):
-        self.assertEqual(str(self.hotel), "Sunrise Hotel")
+        """Verify the magical __str__ method of Hotel model outputs the hotel name."""
+        self.assertEqual(str(self.test_hotel), "Sunrise Hotel")
 
     # Test Case ID: TC_HTL_BE_B_02
     def test_TC_HTL_BE_B_02_update_min_price_uses_available_rooms_only(self):
-        self._create_room(room_type="Standard", price_per_night=100, available_rooms=2)
-        self._create_room(room_type="Deluxe", price_per_night=150, available_rooms=1)
-        self._create_room(room_type="Sold Out", price_per_night=80, available_rooms=0)
+        """
+        CheckDB: Verify that hotel.min_price correctly updates based on the lowest price 
+        among rooms that actually have available inventory.
+        """
+        # Arrange
+        self._create_test_room(room_type="Standard", price_per_night=100, available_rooms=2)
+        self._create_test_room(room_type="Deluxe", price_per_night=150, available_rooms=1)
+        self._create_test_room(room_type="Sold Out", price_per_night=80, available_rooms=0)
 
-        self.hotel.update_min_price()
-        self.hotel.refresh_from_db()
+        # Act
+        self.test_hotel.update_min_price()
+        self.test_hotel.refresh_from_db() # Fetch updated attributes
 
-        self.assertEqual(self.hotel.min_price, 125)
+        # Assert & CheckDB
+        # Expected is 100, not 80, because the 80 priced room has 0 available rooms
+        self.assertEqual(self.test_hotel.min_price, 100) 
 
     # Test Case ID: TC_HTL_BE_B_03
     def test_TC_HTL_BE_B_03_update_min_price_defaults_to_zero_without_available_room(self):
-        self._create_room(room_type="Sold Out A", price_per_night=100, available_rooms=0)
-        self._create_room(room_type="Sold Out B", price_per_night=150, available_rooms=0)
+        """
+        CheckDB: Ensure that min_price evaluates to 0 if all room stock is completely exhausted.
+        """
+        # Arrange
+        self._create_test_room(room_type="Sold Out A", price_per_night=100, available_rooms=0)
+        self._create_test_room(room_type="Sold Out B", price_per_night=150, available_rooms=0)
 
-        self.hotel.update_min_price()
-        self.hotel.refresh_from_db()
+        # Act
+        self.test_hotel.update_min_price()
+        self.test_hotel.refresh_from_db()
 
-        self.assertEqual(self.hotel.min_price, 0)
+        # Assert & CheckDB
+        self.assertEqual(self.test_hotel.min_price, 0)
 
     # Test Case ID: TC_HTL_BE_B_04
     def test_TC_HTL_BE_B_04_sentiment_score_positive_case(self):
-        self.hotel.total_positive = 8
-        self.hotel.total_negative = 2
-        self.hotel.total_neutral = 0
+        """Verify proper mathematical calculation of the sentiment score property."""
+        # Arrange
+        self.test_hotel.total_positive = 8
+        self.test_hotel.total_negative = 2
+        self.test_hotel.total_neutral = 0
 
-        self.assertAlmostEqual(self.hotel.sentiment_score, 6 / 11)
+        # Act & Assert
+        expected_score = (8 - 2) / (10 + 1) # Formula implementation verification
+        self.assertAlmostEqual(self.test_hotel.sentiment_score, expected_score)
 
     # Test Case ID: TC_HTL_BE_B_05
     def test_TC_HTL_BE_B_05_sentiment_score_zero_total(self):
-        self.hotel.total_positive = 0
-        self.hotel.total_negative = 0
-        self.hotel.total_neutral = 0
+        """Verify division-by-zero protection in sentiment logic."""
+        # Arrange
+        self.test_hotel.total_positive = 0
+        self.test_hotel.total_negative = 0
+        self.test_hotel.total_neutral = 0
 
-        self.assertEqual(self.hotel.sentiment_score, 0)
+        # Act & Assert
+        self.assertEqual(self.test_hotel.sentiment_score, 0)
 
     # Test Case ID: TC_HTL_BE_B_06
     def test_TC_HTL_BE_B_06_click_score_uses_log_formula(self):
-        self.hotel.total_click = 99
+        """Verify click scoring applies log formula logic correctly."""
+        # Arrange
+        self.test_hotel.total_click = 99
 
-        self.assertAlmostEqual(self.hotel.click_score, math.log(100))
+        # Act & Assert
+        self.assertAlmostEqual(self.test_hotel.click_score, math.log(100))
 
     # Test Case ID: TC_HTL_BE_B_07
     def test_TC_HTL_BE_B_07_calc_total_weighted_score_combines_metrics(self):
-        self.hotel.avg_star = 4.5
-        self.hotel.total_click = 9
-        self.hotel.total_positive = 3
-        self.hotel.total_negative = 1
-        self.hotel.total_neutral = 0
+        """Verify the global weighted score algorithm accurately integrates star ratings, clicks, and sentiments."""
+        # Arrange
+        self.test_hotel.avg_star = 4.5
+        self.test_hotel.total_click = 9
+        self.test_hotel.total_positive = 3
+        self.test_hotel.total_negative = 1
+        self.test_hotel.total_neutral = 0
 
-        expected = (
-            0.6 * self.hotel.avg_star
-            + 0.3 * math.log(10)
+        # Expected formula breakdown
+        expected_combined_score = (
+            0.6 * self.test_hotel.avg_star
+            + 0.3 * math.log(10) # 9 + 1
             + 0.1 * ((3 - 1) / (4 + 1))
         )
 
-        self.assertAlmostEqual(self.hotel.calc_total_weighted_score, expected)
+        # Act & Assert
+        self.assertAlmostEqual(self.test_hotel.calc_total_weighted_score, expected_combined_score)
 
     # Test Case ID: TC_HTL_BE_B_08
     def test_TC_HTL_BE_B_08_update_total_weighted_score_persists_value(self):
-        self.hotel.avg_star = 4.5
-        self.hotel.total_click = 9
-        self.hotel.total_positive = 3
-        self.hotel.total_negative = 1
-        self.hotel.total_neutral = 0
-        self.hotel.save()
+        """
+        CheckDB: Verify the calculated aggregate score actually persists to the respective DB column upon update.
+        """
+        # Arrange
+        self.test_hotel.avg_star = 4.5
+        self.test_hotel.total_click = 9
+        self.test_hotel.total_positive = 3
+        self.test_hotel.total_negative = 1
+        self.test_hotel.total_neutral = 0
+        self.test_hotel.save()
 
-        self.hotel.update_total_weighted_score()
-        self.hotel.refresh_from_db()
+        # Act
+        self.test_hotel.update_total_weighted_score()
+        self.test_hotel.refresh_from_db()
 
+        # Assert & CheckDB
         self.assertAlmostEqual(
-            self.hotel.total_weighted_score,
-            self.hotel.calc_total_weighted_score,
+            self.test_hotel.total_weighted_score,
+            self.test_hotel.calc_total_weighted_score,
         )
 
     # Test Case ID: TC_HTL_BE_B_09
     def test_TC_HTL_BE_B_09_save_falls_back_to_zero_when_weighted_score_errors(self):
+        """
+        CheckDB: Prevent application crash on calculation errors and fallback score gracefully to 0.0 in DB.
+        """
+        # Arrange: Mock the property to explicitly raise an error
         with patch.object(
             Hotel,
             "calc_total_weighted_score",
             new_callable=PropertyMock,
-        ) as mocked_weighted_score:
-            mocked_weighted_score.side_effect = RuntimeError("calculation failed")
-            hotel = Hotel.objects.create(
-                city=self.city,
-                owner=self.owner,
+        ) as mock_calc_weighted_score_property:
+            mock_calc_weighted_score_property.side_effect = RuntimeError("calculation failed")
+            
+            # Act
+            fallback_hotel = Hotel.objects.create(
+                city=self.danang_city,
+                owner=self.owner_user,
                 name="Fallback Hotel",
             )
 
-        self.assertEqual(hotel.total_weighted_score, 0.0)
-        hotel.refresh_from_db()
-        self.assertEqual(hotel.total_weighted_score, 0.0)
+        # Assert & CheckDB
+        self.assertEqual(fallback_hotel.total_weighted_score, 0.0)
+        fallback_hotel.refresh_from_db()
+        self.assertEqual(fallback_hotel.total_weighted_score, 0.0)
 
     # Test Case ID: TC_HTL_BE_B_10
     def test_TC_HTL_BE_B_10_get_thumbnail_returns_first_image(self):
-        HotelImage.objects.create(hotel=self.hotel, image="/media/hotel_images/a.jpg")
-        HotelImage.objects.create(hotel=self.hotel, image="/media/hotel_images/b.jpg")
-        serializer = HotelSimpleSerializer()
+        """Verify serializer accurately picks the first available image as the UI thumbnail."""
+        # Arrange
+        HotelImage.objects.create(hotel=self.test_hotel, image="/media/hotel_images/a.jpg")
+        HotelImage.objects.create(hotel=self.test_hotel, image="/media/hotel_images/b.jpg")
+        hotel_simple_serializer = HotelSimpleSerializer()
 
-        thumbnail = serializer.get_thumbnail(self.hotel)
+        # Act
+        hotel_thumbnail = hotel_simple_serializer.get_thumbnail(self.test_hotel)
 
-        self.assertEqual(thumbnail, "/media/hotel_images/a.jpg")
+        # Assert
+        self.assertEqual(hotel_thumbnail, "/media/hotel_images/a.jpg")
 
     # Test Case ID: TC_HTL_BE_B_11
     def test_TC_HTL_BE_B_11_get_thumbnail_returns_none_without_images(self):
-        serializer = HotelSimpleSerializer()
+        """Verify handling missing thumbnail images returns None cleanly."""
+        # Arrange
+        hotel_simple_serializer = HotelSimpleSerializer()
 
-        thumbnail = serializer.get_thumbnail(self.hotel)
+        # Act
+        hotel_thumbnail = hotel_simple_serializer.get_thumbnail(self.test_hotel)
 
-        self.assertIsNone(thumbnail)
+        # Assert
+        self.assertIsNone(hotel_thumbnail)
 
     # Test Case ID: TC_HTL_BE_B_12
     def test_TC_HTL_BE_B_12_get_owner_returns_nested_payload_when_owner_exists(self):
-        serializer = HotelSerializer()
-        expected_payload = {"id": self.owner.id, "username": self.owner.username}
+        """Verify serializer successfully encapsulates owner dictionary payload data."""
+        # Arrange
+        hotel_serializer = HotelSerializer()
+        expected_owner_payload = {"id": self.owner_user.id, "username": self.owner_user.username}
 
-        with patch("accounts.serializers.UserSerializer") as mock_user_serializer:
-            mock_user_serializer.return_value.data = expected_payload
-            owner_payload = serializer.get_owner(self.hotel)
+        # Act: Mock the nested serializer to isolate the test scope
+        with patch("accounts.serializers.UserSerializer") as mock_user_serializer_class:
+            mock_user_serializer_class.return_value.data = expected_owner_payload
+            generated_owner_payload = hotel_serializer.get_owner(self.test_hotel)
 
-        self.assertEqual(owner_payload, expected_payload)
+        # Assert
+        self.assertEqual(generated_owner_payload, expected_owner_payload)
 
     # Test Case ID: TC_HTL_BE_B_13
     def test_TC_HTL_BE_B_13_get_owner_returns_none_without_owner(self):
+        """Verify clean fallback when the hotel entity lacks an assigned owner."""
+        # Arrange
         hotel_without_owner = Hotel.objects.create(
-            city=self.city,
+            city=self.danang_city,
             owner=None,
             name="Ownerless Hotel",
         )
-        serializer = HotelSerializer()
+        hotel_serializer = HotelSerializer()
 
-        owner_payload = serializer.get_owner(hotel_without_owner)
+        # Act
+        generated_owner_payload = hotel_serializer.get_owner(hotel_without_owner)
 
-        self.assertIsNone(owner_payload)
+        # Assert
+        self.assertIsNone(generated_owner_payload)
 
     # Test Case ID: TC_HTL_BE_B_14
     def test_TC_HTL_BE_B_14_upsert_rejects_missing_hotel_id(self):
-        before_count = UserHotelInteraction.objects.count()
-        self.api_client.force_authenticate(user=self.customer)
+        """
+        CheckDB: Verify no interaction record is inserted into the DB when a payload is missing required IDs.
+        """
+        # Arrange
+        initial_interaction_db_count = UserHotelInteraction.objects.count()
+        self.api_client.force_authenticate(user=self.customer_user)
 
-        response = self.api_client.post(
+        # Act
+        api_response = self.api_client.post(
             "/api/hotels/user-hotel-interaction/upsert/",
             {},
             format="json",
         )
 
-        self.assertEqual(response.status_code, 400)
-        self.assertEqual(response.data["message"], "Missing hotel_id")
-        self.assertEqual(UserHotelInteraction.objects.count(), before_count)
+        # Assert & CheckDB
+        self.assertEqual(api_response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(api_response.data["message"], "Missing hotel_id")
+        self.assertEqual(UserHotelInteraction.objects.count(), initial_interaction_db_count)
 
     # Test Case ID: TC_HTL_BE_B_15
     def test_TC_HTL_BE_B_15_upsert_updates_interaction_and_hotel_totals(self):
-        before_count = UserHotelInteraction.objects.count()
-        request = self.factory.post(
+        """
+        CheckDB: Upon submitting interactions (views, ratings), verify a new UserHotelInteraction db record is made 
+        and the parent hotel's aggregated statistic counters are correctly refreshed.
+        """
+        # Arrange
+        initial_interaction_db_count = UserHotelInteraction.objects.count()
+        upsert_payload = {
+            "hotel_id": self.test_hotel.id,
+            "click_count": 5,
+            "positive_count": 2,
+            "negative_count": 1,
+            "neutral_count": 0,
+        }
+        api_request = self.api_request_factory.post(
             "/api/hotels/user-hotel-interaction/upsert/",
-            {
-                "hotel_id": self.hotel.id,
-                "click_count": 5,
-                "positive_count": 2,
-                "negative_count": 1,
-                "neutral_count": 0,
-            },
+            upsert_payload,
             format="json",
         )
-        force_authenticate(request, user=self.customer)
-        view = UserHotelInteractionUpsertView.as_view()
+        force_authenticate(api_request, user=self.customer_user)
+        upsert_view_handler = UserHotelInteractionUpsertView.as_view()
 
-        response = view(request)
+        # Act
+        api_response = upsert_view_handler(api_request)
 
-        self.assertEqual(response.status_code, 200)
-        self.assertTrue(response.data["isSuccess"])
-        self.assertEqual(response.data["message"], "Interaction created successfully!")
-        self.assertEqual(UserHotelInteraction.objects.count(), before_count + 1)
+        # Assert Response State
+        self.assertEqual(api_response.status_code, status.HTTP_200_OK)
+        self.assertTrue(api_response.data["isSuccess"])
+        self.assertEqual(api_response.data["message"], "Interaction created successfully!")
+        
+        # CheckDB: Verify exact interaction counts and score states exist correctly in database.
+        self.assertEqual(UserHotelInteraction.objects.count(), initial_interaction_db_count + 1)
+        created_interaction_record = UserHotelInteraction.objects.get(user=self.customer_user, hotel=self.test_hotel)
+        self.test_hotel.refresh_from_db()
 
-        interaction = UserHotelInteraction.objects.get(user=self.customer, hotel=self.hotel)
-        self.hotel.refresh_from_db()
-
-        expected_weighted_score = 0.7 * ((2 - 1) / (3 + 1)) + 0.3 * math.log(6)
-        expected_total_weighted_score = (
-            0.6 * self.hotel.avg_star
-            + 0.3 * math.log(1 + self.hotel.total_click)
-            + 0.1 * ((self.hotel.total_positive - self.hotel.total_negative) / (3 + 1))
+        # Calculate logical expectations
+        expected_user_weighted_score = 0.7 * ((2 - 1) / (3 + 1)) + 0.3 * math.log(6)
+        expected_hotel_total_weighted_score = (
+            0.6 * self.test_hotel.avg_star
+            + 0.3 * math.log(1 + self.test_hotel.total_click)
+            + 0.1 * ((self.test_hotel.total_positive - self.test_hotel.total_negative) / (3 + 1))
         )
 
-        self.assertEqual(interaction.click_count, 5)
-        self.assertEqual(interaction.positive_count, 2)
-        self.assertEqual(interaction.negative_count, 1)
-        self.assertEqual(interaction.neutral_count, 0)
-        self.assertAlmostEqual(interaction.weighted_score, expected_weighted_score)
+        # Final Assertions on fetched db entities
+        self.assertEqual(created_interaction_record.click_count, 5)
+        self.assertEqual(created_interaction_record.positive_count, 2)
+        self.assertEqual(created_interaction_record.negative_count, 1)
+        self.assertEqual(created_interaction_record.neutral_count, 0)
+        self.assertAlmostEqual(created_interaction_record.weighted_score, expected_user_weighted_score)
 
-        self.assertEqual(self.hotel.total_click, 5)
-        self.assertEqual(self.hotel.total_positive, 2)
-        self.assertEqual(self.hotel.total_negative, 1)
-        self.assertEqual(self.hotel.total_neutral, 0)
+        self.assertEqual(self.test_hotel.total_click, 5)
+        self.assertEqual(self.test_hotel.total_positive, 2)
+        self.assertEqual(self.test_hotel.total_negative, 1)
+        self.assertEqual(self.test_hotel.total_neutral, 0)
         self.assertAlmostEqual(
-            self.hotel.total_weighted_score,
-            expected_total_weighted_score,
+            self.test_hotel.total_weighted_score,
+            expected_hotel_total_weighted_score,
         )
